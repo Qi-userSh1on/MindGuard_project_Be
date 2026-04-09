@@ -1,35 +1,204 @@
 const express = require("express");
+const cors = require("cors");
 const { Sequelize } = require("sequelize");
 
 const app = express();
-const port = 3000;
 
-// Middleware agar Express bisa membaca data JSON
+/* =========================
+   MIDDLEWARE
+========================= */
+
+app.use(cors());
 app.use(express.json());
 
-// Inisialisasi Sequelize (Sesuaikan 'database', 'username', 'password')
+/* =========================
+   KONEKSI DATABASE
+========================= */
+
 const sequelize = new Sequelize("express_backend_mindguard", "root", "", {
   host: "localhost",
   dialect: "mysql",
+  logging: false,
 });
 
-const startServer = async () => {
+/* =========================
+   TEST KONEKSI DATABASE
+========================= */
+
+async function connectDatabase() {
   try {
     await sequelize.authenticate();
-    console.log("✅ Koneksi database berhasil!");
-
-    // Jalankan server
-    app.listen(port, () => {
-      console.log(`🚀 Server berjalan di http://localhost:5173/`);
-    });
+    console.log("✅ Database connected");
   } catch (error) {
-    console.error("❌ Gagal koneksi database:", error);
+    console.error("❌ Connection error:", error);
   }
-};
+}
 
-// Route percobaan
+connectDatabase();
+
+/* =========================
+   ROUTE TEST
+========================= */
+
 app.get("/", (req, res) => {
-  res.send("Server Node.js + Sequelize siap digunakan!");
+  res.json({
+    message: "Server is running",
+  });
 });
 
-startServer();
+/* =========================
+   CREATE HISTORY (PENTING)
+   ini yang dipanggil dari React
+========================= */
+
+app.post("/history", async (req, res) => {
+  try {
+    console.log("DATA MASUK:", req.body);
+
+    const {
+      user_id,
+      tidur_jam,
+      minum_gelas,
+      olahraga_jam,
+      istirahat_jam,
+      status,
+      note,
+    } = req.body;
+
+    if (!user_id) {
+      return res.status(400).json({
+        message: "user_id is required",
+      });
+    }
+
+    await sequelize.query(
+      `
+      INSERT INTO analysis_results
+      (
+        user_id,
+        tidur_jam,
+        minum_gelas,
+        olahraga_jam,
+        istirahat_jam,
+        status,
+        note,
+        created_at
+      )
+      VALUES
+      (
+        :user_id,
+        :tidur_jam,
+        :minum_gelas,
+        :olahraga_jam,
+        :istirahat_jam,
+        :status,
+        :note,
+        NOW()
+      )
+      `,
+      {
+        replacements: {
+          user_id,
+          tidur_jam,
+          minum_gelas,
+          olahraga_jam,
+          istirahat_jam,
+          status,
+          note,
+        },
+      },
+    );
+
+    res.status(201).json({
+      message: "Data berhasil disimpan",
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      message: error.message,
+    });
+  }
+});
+
+/* =========================
+   HISTORY 7 HARI TERAKHIR
+========================= */
+
+app.get("/history", async (req, res) => {
+  try {
+    const user_id = req.query.user_id;
+
+    if (!user_id) {
+      return res.status(400).json({
+        message: "user_id is required",
+      });
+    }
+
+    const [results] = await sequelize.query(
+      `
+      SELECT *
+      FROM analysis_results
+      WHERE user_id = :user_id
+      AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+      ORDER BY created_at DESC
+      `,
+      {
+        replacements: {
+          user_id,
+        },
+      },
+    );
+
+    res.json(results);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      message: error.message,
+    });
+  }
+});
+
+/* =========================
+   HISTORY PER HARI
+========================= */
+
+app.get("/history-by-day", async (req, res) => {
+  try {
+    const user_id = req.query.user_id;
+    const day = req.query.day || 0;
+
+    const [results] = await sequelize.query(
+      `
+      SELECT *
+      FROM analysis_results
+      WHERE user_id = :user_id
+      AND DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL :day DAY)
+      ORDER BY created_at DESC
+      `,
+      {
+        replacements: {
+          user_id,
+          day,
+        },
+      },
+    );
+
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
+});
+
+/* =========================
+   START SERVER
+========================= */
+
+const PORT = 3000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
